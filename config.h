@@ -9,5 +9,6 @@ typedef struct {
 
 int read_config( config_struct * config, const char* path );
 int find_line( config_struct * config, const char * line );
+void free_config( config_struct * config );
 
 #endif // CONFIG_H

@@ -6,7 +6,9 @@
 #include "config.h"
 
 int read_config( config_struct * config, const char* path ){
-
+	config->src = NULL;
+	config->lines = NULL;
+	
 	// Part I fully read config file and close
 	FILE *f = fopen( path, "r" ); // open config file 
 	if( f == NULL ) return -1; // cannot open config file
@@ -65,4 +67,16 @@ int find_line( config_struct * config, const char * line ){
 	}
 
 	return -1;
+}
+
+
+void free_config( config_struct * config ){
+	if( config->src != NULL ) {
+		free( config->src );
+		config->src = NULL;
+	}
+	if( config->lines != NULL ){
+		free( config->lines	);	
+		config->lines = NULL;
+	} 
 }

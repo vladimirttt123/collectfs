@@ -274,6 +274,8 @@ int main(int argc, char *argv[])
 
 	ret = fuse_main(args.argc, args.argv, &collect_oper, NULL);
 	fuse_opt_free_args(&args);
-
+	free(file_sizes);
+	free_config( &config );
+	
 	return ret;
 }
