@@ -8,5 +8,6 @@ typedef struct {
 } config_struct;
 
 int read_config( config_struct * config, const char* path );
+int find_line( config_struct * config, const char * line );
 
 #endif // CONFIG_H

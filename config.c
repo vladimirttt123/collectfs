@@ -57,3 +57,12 @@ int read_config( config_struct * config, const char* path ){
 
 	return 0;
 }
+
+
+int find_line( config_struct * config, const char * line ){
+	for( int i = 0; i < config->lines_count; i++ ){
+		if( strcmp( line, config->lines[i] ) == 0 ) return i;
+	}
+
+	return -1;
+}

@@ -37,7 +37,105 @@ static const struct fuse_opt option_spec[] = {
 				FUSE_OPT_END
 };
 
+
 static config_struct config;
+
+static void *collect_init(struct fuse_conn_info *conn,
+												struct fuse_config *cfg)
+{
+		(void) conn;
+		
+		// seems we do not need system cach on our FS because it is just reads from other and there need cache
+		cfg->kernel_cache = 0; // was 1
+
+		return NULL;
+}
+
+static int collect_getattr(const char *path, struct stat *stbuf,
+												 struct fuse_file_info *fi)
+{
+	(void) fi;
+	int res = 0;
+
+	// printf( "getting attributes of %s\n", path );
+
+	memset( stbuf, 0, sizeof(struct stat) );
+	if (strcmp(path, "/") == 0 || strcmp(path, ".") == 0 || strcmp(path,"..") == 0 ) {
+	 				stbuf->st_mode = S_IFDIR | 0755;
+	 				stbuf->st_nlink = 2;
+	} else {
+		int64_t fsize = -1;
+		int line = find_line( &config, path + 1 /*skip first slash*/ );
+		if( line >= 0 ){
+			fsize = 0;
+			struct stat path_stat;
+			for( line++; line < config.lines_count && config.lines[line][0] == '/'; line++ ){
+				if( stat( config.lines[line], &path_stat ) == 0
+						&& S_ISREG( path_stat.st_mode ) ){
+					fsize += path_stat.st_size;
+				}
+			}
+		}
+		if( fsize >= 0 ) {
+			stbuf->st_mode = S_IFREG | 0444;
+			stbuf->st_nlink = 1;
+			stbuf->st_size = fsize;
+		} else 
+			res = -ENOENT;
+	}
+
+	return res;
+}
+
+
+static int collect_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+												 off_t offset, struct fuse_file_info *fi,
+												 enum fuse_readdir_flags flags)
+{
+		(void) offset;
+		(void) fi;
+		(void) flags;
+
+		if( strcmp(path, "/") != 0 )
+			return -ENOENT; // exists only root folder
+
+		filler(buf, ".", NULL, 0, 0);
+		filler(buf, "..", NULL, 0, 0);
+
+		for( int i = 0; i < config.lines_count; i ++ )
+			if( config.lines[i][0] != '/' )
+				filler( buf, config.lines[i], NULL, 0, 0 );	 
+		
+		return 0;
+}
+
+static int collect_open( const char *path, struct fuse_file_info *fi )
+{
+	if ((fi->flags & O_ACCMODE) != O_RDONLY)
+		return -EACCES;
+
+	return -EACCES;
+}
+
+static int collect_release(const char * path, struct fuse_file_info *fi ){
+	return 0;
+}
+
+
+static int collect_read(const char *path, char *buf, size_t size, off_t offset,
+											struct fuse_file_info *fi)
+{
+	return 0;
+}
+
+static const struct fuse_operations collect_oper = {
+				.init           = collect_init,
+				.getattr        = collect_getattr,
+				.readdir        = collect_readdir,
+				.open           = collect_open,
+				.read           = collect_read,
+				.release				= collect_release
+};
 
 static void show_help(const char *progname)
 {
@@ -109,21 +207,21 @@ int main(int argc, char *argv[])
 
 	}
 
-
 	ret = read_config( &config, options.config );
 	if( ret != 0 ){
 		printf( "cannot read config %i\n", ret );
 		return 4;
 	}
 
-	for( int i = 0; i < config.lines_count; i++ )
-		printf( "%s\n", config.lines[i] );
+	// for( int i = 0; i < config.lines_count; i++ )
+	// 	printf( "%s\n", config.lines[i] );
 	// This allow to show src directory in mount output
 	// do we need to free previous value?
 	//	args.argv[0] = strdup( options.srcdir );
 
 
-	// ret = fuse_main(args.argc, args.argv, &plotz_oper, NULL);
+	ret = fuse_main(args.argc, args.argv, &collect_oper, NULL);
 	fuse_opt_free_args(&args);
+
 	return ret;
 }
