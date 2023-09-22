@@ -114,7 +114,10 @@ static int collect_open( const char *path, struct fuse_file_info *fi )
 	if ((fi->flags & O_ACCMODE) != O_RDONLY)
 		return -EACCES;
 
-	return -EACCES;
+	if( find_line( &config, path+1 ) < 0 )
+		return -ENOENT;
+
+	return 0;
 }
 
 static int collect_release(const char * path, struct fuse_file_info *fi ){
@@ -125,7 +128,33 @@ static int collect_release(const char * path, struct fuse_file_info *fi ){
 static int collect_read(const char *path, char *buf, size_t size, off_t offset,
 											struct fuse_file_info *fi)
 {
-	return 0;
+	int line = find_line( &config, path+1 );
+	if( line < 0 ) return -ENOENT;
+
+	off_t cur_offset = 0;
+	size_t bytes_read = 0;
+
+	for( line++; line < config.lines_count && config.lines[line][0] == '/'; line++ ){
+		FILE *f = fopen( config.lines[line], "r" );
+		if( f == NULL ) return -ENODATA;
+		if( offset > cur_offset ){
+			if( fseek( f, cur_offset - offset, SEEK_SET ) != 0 ){
+				return -EIO;
+			}
+			cur_offset += ftell( f );
+		}
+
+		if( offset == cur_offset ){
+			size_t cur_read = fread( buf + bytes_read, 1, size - bytes_read, f );
+			bytes_read += cur_read;
+		}
+
+		fclose( f );
+
+		if( bytes_read == size ) return bytes_read;
+	}
+
+	return bytes_read;
 }
 
 static const struct fuse_operations collect_oper = {
