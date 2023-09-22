@@ -8,7 +8,7 @@
 int read_config( config_struct * config, const char* path ){
 	config->src = NULL;
 	config->lines = NULL;
-	
+
 	// Part I fully read config file and close
 	FILE *f = fopen( path, "r" ); // open config file 
 	if( f == NULL ) return -1; // cannot open config file
@@ -31,15 +31,13 @@ int read_config( config_struct * config, const char* path ){
 	char * curLine = config->src;
 	while( curLine[0] != 0 ){
 		char * nextLine = strchr(curLine, '\n');
-		if( nextLine ){
-			*nextLine = '\0';  // terminate the current line
-			if( strlen( curLine ) > 0 && curLine[0] != '#' ){
-				config->lines_count ++;
-			}
-			curLine = nextLine + 1;
-		} 
-		else curLine = config->src + size; // end of loop
-	}
+		if( nextLine ) *nextLine = '\0';  // terminate the current line
+		if( strlen( curLine ) > 0 && curLine[0] != '#' ){
+			config->lines_count ++;
+		}
+		
+		curLine = nextLine ? ( nextLine + 1 ) : (config->src + size);
+ 	}
 
 
 	if( config->lines_count == 0 ) {

@@ -20,7 +20,7 @@ sudo make install
 
 In order to remove intalled from system
 ```
-sudo make unistall
+sudo make uninstall
 ```
 
 ## Usage 
