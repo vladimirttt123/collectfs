@@ -138,10 +138,16 @@ static int collect_read(const char *path, char *buf, size_t size, off_t offset,
 		FILE *f = fopen( config.lines[line], "r" );
 		if( f == NULL ) return -ENODATA;
 		if( offset > cur_offset ){
-			if( fseek( f, cur_offset - offset, SEEK_SET ) != 0 ){
-				return -EIO;
+			int seek_res = fseek( f, 0, SEEK_END );
+			if( seek_res != 0 ) return -EIO;
+			if( ftell(f) <= offset - cur_offset )
+				cur_offset += ftell(f);
+			else {
+				seek_res = fseek( f, offset - cur_offset, SEEK_SET );
+				if( seek_res != 0 ) return -EIO;
+			
+				cur_offset += ftell( f );
 			}
-			cur_offset += ftell( f );
 		}
 
 		if( offset == cur_offset ){
