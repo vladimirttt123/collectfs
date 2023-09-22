@@ -13,3 +13,5 @@ next_filename
 full_path_to_part1_of_file2
 full_path_to_part2_of_file2
 ...
+
+Warning! Supposed no mentioned files change during mount!

@@ -39,6 +39,7 @@ static const struct fuse_opt option_spec[] = {
 
 
 static config_struct config;
+static int64_t *file_sizes;
 
 static void *collect_init(struct fuse_conn_info *conn,
 												struct fuse_config *cfg)
@@ -55,36 +56,22 @@ static int collect_getattr(const char *path, struct stat *stbuf,
 												 struct fuse_file_info *fi)
 {
 	(void) fi;
-	int res = 0;
-
-	// printf( "getting attributes of %s\n", path );
 
 	memset( stbuf, 0, sizeof(struct stat) );
 	if (strcmp(path, "/") == 0 || strcmp(path, ".") == 0 || strcmp(path,"..") == 0 ) {
 	 				stbuf->st_mode = S_IFDIR | 0755;
 	 				stbuf->st_nlink = 2;
 	} else {
-		int64_t fsize = -1;
 		int line = find_line( &config, path + 1 /*skip first slash*/ );
-		if( line >= 0 ){
-			fsize = 0;
-			struct stat path_stat;
-			for( line++; line < config.lines_count && config.lines[line][0] == '/'; line++ ){
-				if( stat( config.lines[line], &path_stat ) == 0
-						&& S_ISREG( path_stat.st_mode ) ){
-					fsize += path_stat.st_size;
-				}
-			}
-		}
-		if( fsize >= 0 ) {
-			stbuf->st_mode = S_IFREG | 0444;
-			stbuf->st_nlink = 1;
-			stbuf->st_size = fsize;
-		} else 
-			res = -ENOENT;
+		if( line < 0 || config.lines[line][0] == '/' )
+			return -ENOENT;
+
+		stbuf->st_mode = S_IFREG | 0444;
+		stbuf->st_nlink = 1;
+		stbuf->st_size = file_sizes[line];
 	}
 
-	return res;
+	return 0;
 }
 
 
@@ -114,7 +101,7 @@ static int collect_open( const char *path, struct fuse_file_info *fi )
 	if ((fi->flags & O_ACCMODE) != O_RDONLY)
 		return -EACCES;
 
-	if( find_line( &config, path+1 ) < 0 )
+	if( path[1] == '/' || find_line( &config, path+1 ) < 0 )
 		return -ENOENT;
 
 	return 0;
@@ -129,31 +116,34 @@ static int collect_read(const char *path, char *buf, size_t size, off_t offset,
 											struct fuse_file_info *fi)
 {
 	int line = find_line( &config, path+1 );
-	if( line < 0 ) return -ENOENT;
+	if( line < 0 || path[1] == '/' ) return -ENOENT;
+
+	if( offset >= file_sizes[line] ) return 0;
 
 	off_t cur_offset = 0;
 	size_t bytes_read = 0;
 
 	for( line++; line < config.lines_count && config.lines[line][0] == '/'; line++ ){
-		FILE *f = fopen( config.lines[line], "r" );
-		if( f == NULL ) return -ENODATA;
+
 		if( offset > cur_offset ){
-			int seek_res = fseek( f, 0, SEEK_END );
-			if( seek_res != 0 ) return -EIO;
-			if( ftell(f) <= offset - cur_offset )
-				cur_offset += ftell(f);
-			else {
-				seek_res = fseek( f, offset - cur_offset, SEEK_SET );
-				if( seek_res != 0 ) return -EIO;
-			
-				cur_offset += ftell( f );
+			if( file_sizes[line] <= offset - cur_offset ){
+				cur_offset += file_sizes[line];
+				continue;
 			}
 		}
-
-		if( offset == cur_offset ){
-			size_t cur_read = fread( buf + bytes_read, 1, size - bytes_read, f );
-			bytes_read += cur_read;
+		FILE *f = fopen( config.lines[line], "r" );
+		if( f == NULL ) return -EIO;
+		if( offset > cur_offset ){
+			int seek_res = fseek( f, offset - cur_offset, SEEK_SET );
+			if( seek_res != 0 ) return -EIO;
+		
+			cur_offset += ftell( f );
 		}
+
+		if( offset != cur_offset ) return -EIO; // impossible problem
+
+		size_t cur_read = fread( buf + bytes_read, 1, size - bytes_read, f );
+		bytes_read += cur_read;
 
 		fclose( f );
 
@@ -248,8 +238,35 @@ int main(int argc, char *argv[])
 		return 4;
 	}
 
-	// for( int i = 0; i < config.lines_count; i++ )
-	// 	printf( "%s\n", config.lines[i] );
+	if( config.lines_count == 0 ){
+		printf( "Config is empty" );
+		return 5;
+	}
+
+	// init files sizes 
+	file_sizes = (int64_t*)malloc( sizeof(int64_t)*config.lines_count );
+	struct stat path_stat;
+	for( int i = 0, last_compound = 0; i < config.lines_count; i++ ){
+		
+		if( config.lines[i][0] != '/' )
+			file_sizes[last_compound = i] = 0;
+		else{
+			if( stat( config.lines[i], &path_stat ) == 0 ){
+				if( !S_ISREG( path_stat.st_mode ) ){
+					printf( "%s is not a regular file", config.lines[i] );
+					file_sizes[i] = 0;
+				}
+				else
+					file_sizes[i] = path_stat.st_size;
+			}
+			else{
+				printf( "Error: cannot stat %s", config.lines[i] );
+				file_sizes[i] = 0;
+			}
+		}
+		file_sizes[last_compound] += file_sizes[i];
+	}
+
 	// This allow to show src directory in mount output
 	// do we need to free previous value?
 	//	args.argv[0] = strdup( options.srcdir );
