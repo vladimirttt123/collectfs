@@ -7,7 +7,7 @@ The implementation is very simple and can be slow on big number (thouthands) of 
 All files used for read only purposes.
 
 ## Get and Build
-FUSE 3.1 should be installed before building.
+FUSE 3 should be installed before building.
 ```
 git clone https://github.com/vladimirttt123/collectfs.git
 cd collectfs
@@ -58,3 +58,16 @@ After mounting with such config file list of mount point should show 2 files wit
 
 # Warning! Supposed no referenced files changing during mount!
 First create files than add it to config, than you can mount.
+
+## Troubleshooting
+In order to help understand the problems with config file there is ".fsinfo" file.
+It presents invisibly or can be added to config and will be present visibly.
+To understand the problem always possble read the file
+```
+cat /mnt/collectfs.mountpoint/.fsinfo
+```
+First row of the file is the version and path to config file. 
+Following rows contains all significant rows of config file preceeded by number. 
+Before first listing of mount point this numbers could be
+-1, but after first listing all numbers should be non negatives and represents file size.
+All rows with negative values should be checked for validity.
