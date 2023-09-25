@@ -14,7 +14,8 @@
 
 #include "config.h"
 
-const char * collectfs_ver = "0.0.0";
+const char * collectfs_ver = "0.0.1";
+const char * fs_info_name = ".fsinfo";
 
 /*
  * Command line options
@@ -41,6 +42,66 @@ static const struct fuse_opt option_spec[] = {
 static config_struct config;
 static int64_t *file_sizes;
 
+static int get_fs_info_size(){
+	int info_size = 1 + config.lines_count*2 + (strlen(collectfs_ver) + 2);
+	for( int i = 0; i < config.lines_count; i++ )
+		info_size += strlen( config.lines[i] ) + snprintf( NULL, 0, "%ld", file_sizes[i] );
+
+	return info_size;
+}
+
+static int get_fs_info( char *buf, size_t size, off_t offset ){
+	int info_size = get_fs_info_size();
+	
+	char * res = (char*)malloc( info_size + 1 );
+	memset( res, 0, info_size );
+	
+	for( int i = 0, len = snprintf( res, info_size, "v%s\n", collectfs_ver ); 
+					i < config.lines_count; i++ )
+		len += snprintf( res + len, info_size-len, "%ld\t%s\n", file_sizes[i], config.lines[i] );
+
+	if( offset > info_size ) return 0;
+	if( (offset+size) > info_size ) 
+		size = info_size - offset;
+	memcpy( buf, res + offset, size );
+
+	free( res );
+
+	return size;
+}
+
+static int64_t get_file_size( int base_line ){
+
+	if( base_line < 0 || base_line >= config.lines_count || config.lines[base_line][0] == '/' ) 
+		return -1; // incorrect base line
+	
+	if( file_sizes[base_line] < 0 ) {
+		// reinit
+		struct stat path_stat;
+		int64_t size = 0;
+		for( int i = base_line+1; i < config.lines_count && config.lines[i][0] == '/'; i++ ){
+			
+			if( file_sizes[i] < 0 ) {
+				if( stat( config.lines[i], &path_stat ) != 0 ){
+					printf( "Error: cannot stat %s", config.lines[i] );
+					return file_sizes[i] = -2;
+				}
+				if( !S_ISREG( path_stat.st_mode ) ){
+					printf( "%s is not a regular file", config.lines[i] );
+					return file_sizes[i] = -3;
+				}
+
+				file_sizes[i] = path_stat.st_size;
+			} 
+			size += file_sizes[i];
+		}
+
+		file_sizes[base_line] = size; // everithing OK
+	}
+	
+	return file_sizes[base_line];
+}
+
 static void *collect_init(struct fuse_conn_info *conn,
 												struct fuse_config *cfg)
 {
@@ -48,6 +109,11 @@ static void *collect_init(struct fuse_conn_info *conn,
 		
 		// seems we do not need system cach on our FS because it is just reads from other and there need cache
 		cfg->kernel_cache = 0; // was 1
+
+		// init files sizes 
+		file_sizes = (int64_t*)malloc( sizeof(int64_t)*config.lines_count );
+		for( int i = 0; i < config.lines_count; i++ )
+			file_sizes[i] = -1; // not inited or has a problem
 
 		return NULL;
 }
@@ -59,16 +125,23 @@ static int collect_getattr(const char *path, struct stat *stbuf,
 
 	memset( stbuf, 0, sizeof(struct stat) );
 	if (strcmp(path, "/") == 0 || strcmp(path, ".") == 0 || strcmp(path,"..") == 0 ) {
-	 				stbuf->st_mode = S_IFDIR | 0755;
+	 				stbuf->st_mode = S_IFDIR | 0555;
 	 				stbuf->st_nlink = 2;
 	} else {
-		int line = find_line( &config, path + 1 /*skip first slash*/ );
-		if( line < 0 || config.lines[line][0] == '/' )
-			return -ENOENT;
+		if( strcmp( path + 1, fs_info_name ) == 0 ){
+			stbuf->st_size = get_fs_info_size();
+		}else {
+			int line = find_line( &config, path + 1 /*skip first slash*/ );
+			if( line < 0 || config.lines[line][0] == '/' )
+				return -ENOENT;
+
+			stbuf->st_size = get_file_size( line );
+		}
+
+		if( stbuf->st_size < 0 ) return -EIO;
 
 		stbuf->st_mode = S_IFREG | 0444;
 		stbuf->st_nlink = 1;
-		stbuf->st_size = file_sizes[line];
 	}
 
 	return 0;
@@ -101,8 +174,13 @@ static int collect_open( const char *path, struct fuse_file_info *fi )
 	if ((fi->flags & O_ACCMODE) != O_RDONLY)
 		return -EACCES;
 
-	if( path[1] == '/' || find_line( &config, path+1 ) < 0 )
+	if( strcmp( path + 1, fs_info_name ) == 0 ) return 0;
+
+	int line = find_line( &config, path+1 );
+	if( path[1] == '/' || line < 0 )
 		return -ENOENT;
+
+	if( get_file_size(line) < 0 ) return -EIO;
 
 	return 0;
 }
@@ -115,32 +193,48 @@ static int collect_release(const char * path, struct fuse_file_info *fi ){
 static int collect_read(const char *path, char *buf, size_t size, off_t offset,
 											struct fuse_file_info *fi)
 {
-	int line = find_line( &config, path+1 );
-	if( line < 0 || path[1] == '/' ) return -ENOENT;
+	if( strcmp( path + 1, fs_info_name) == 0 )
+		return get_fs_info( buf, size, offset );
 
-	if( offset >= file_sizes[line] ) return 0;
+	int base_line = find_line( &config, path+1 );
+	if( base_line < 0 || path[1] == '/' ) return -ENOENT;
+
+	off_t fsize = get_file_size( base_line );
+	if( fsize < 0 ) return -EIO; // file has problems
+	if( offset >= fsize ) return 0; // read after end of file
 
 	off_t cur_offset = 0;
 	size_t bytes_read = 0;
 
-	for( line++; line < config.lines_count && config.lines[line][0] == '/'; line++ ){
+	for( int line = base_line + 1; line < config.lines_count && config.lines[line][0] == '/'; line++ ){
 
 		if( offset > cur_offset ){
-			if( file_sizes[line] <= offset - cur_offset ){
-				cur_offset += file_sizes[line];
+			if( fsize <= offset - cur_offset ){
+				cur_offset += fsize;
 				continue;
 			}
 		}
 		FILE *f = fopen( config.lines[line], "r" );
-		if( f == NULL ) return -EIO;
+		if( f == NULL ){
+			file_sizes[base_line] = file_sizes[line] = -1;
+			return -EIO;
+		}
 		if( offset > cur_offset ){
 			int seek_res = fseek( f, offset - cur_offset, SEEK_SET );
-			if( seek_res != 0 ) return -EIO;
+			if( seek_res != 0 ){
+				file_sizes[base_line] = file_sizes[line] = -1;
+				fclose( f );
+				return -EIO;
+			}
 		
 			cur_offset += ftell( f );
 		}
 
-		if( offset != cur_offset ) return -EIO; // impossible problem
+		if( offset != cur_offset ) {
+			file_sizes[base_line] = file_sizes[line] = -1;
+			fclose( f );
+			return -EIO; // impossible problem
+		}
 
 		size_t cur_read = fread( buf + bytes_read, 1, size - bytes_read, f );
 		bytes_read += cur_read;
@@ -155,6 +249,7 @@ static int collect_read(const char *path, char *buf, size_t size, off_t offset,
 
 static const struct fuse_operations collect_oper = {
 				.init           = collect_init,
+//				.destroy				= collect_destroy,
 				.getattr        = collect_getattr,
 				.readdir        = collect_readdir,
 				.open           = collect_open,
@@ -243,29 +338,6 @@ int main(int argc, char *argv[])
 		return 5;
 	}
 
-	// init files sizes 
-	file_sizes = (int64_t*)malloc( sizeof(int64_t)*config.lines_count );
-	struct stat path_stat;
-	for( int i = 0, last_compound = 0; i < config.lines_count; i++ ){
-		
-		if( config.lines[i][0] != '/' )
-			file_sizes[last_compound = i] = 0;
-		else{
-			if( stat( config.lines[i], &path_stat ) == 0 ){
-				if( !S_ISREG( path_stat.st_mode ) ){
-					printf( "%s is not a regular file", config.lines[i] );
-					file_sizes[i] = 0;
-				}
-				else
-					file_sizes[i] = path_stat.st_size;
-			}
-			else{
-				printf( "Error: cannot stat %s", config.lines[i] );
-				file_sizes[i] = 0;
-			}
-		}
-		file_sizes[last_compound] += file_sizes[i];
-	}
 
 	// This allow to show src directory in mount output
 	// do we need to free previous value?
@@ -274,7 +346,7 @@ int main(int argc, char *argv[])
 
 	ret = fuse_main(args.argc, args.argv, &collect_oper, NULL);
 	fuse_opt_free_args(&args);
-	free(file_sizes);
+	free(file_sizes); // TODO move to destroy
 	free_config( &config );
 	
 	return ret;
