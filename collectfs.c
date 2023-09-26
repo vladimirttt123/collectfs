@@ -203,6 +203,7 @@ static int collect_read(const char *path, char *buf, size_t size, off_t offset,
 	if( fsize < 0 ) return -EIO; // file has problems
 	if( offset >= fsize ){ // try to read after end of file
 		fsize = get_file_size( base_line, 1 ); // force reread size... may be underlying files changed
+		if( fsize < 0 ) return -EIO;
 		if( offset >= fsize ) return EOF; // read after end of file - what to return?
 	} 
 
@@ -316,7 +317,6 @@ int main(int argc, char *argv[])
 		show_help(argv[0]);
 		assert(fuse_opt_add_arg(&args, "--help") == 0);
 		args.argv[0][0] = '\0';
-		return 0;
 	}
 	else {
 		// check source dir not inside mount point
@@ -329,24 +329,25 @@ int main(int argc, char *argv[])
 			return 3;
 		}
 
+
+		ret = read_config( &config, options.config );
+		if( ret != 0 ){
+			printf( "cannot read config %i\n", ret );
+			return 4;
+		}
+
+		if( config.lines_count == 0 ){
+			printf( "Config is empty" );
+			return 5;
+		}
+
+		char static_options[strlen(options.config)+11];
+		sprintf( static_options, "ro,fsname=%s", options.config );
+		fuse_opt_add_arg( &args,"-o" );
+		fuse_opt_add_arg( &args, static_options );
 	}
 
-	ret = read_config( &config, options.config );
-	if( ret != 0 ){
-		printf( "cannot read config %i\n", ret );
-		return 4;
-	}
-
-	if( config.lines_count == 0 ){
-		printf( "Config is empty" );
-		return 5;
-	}
-
-
-	// This allow to show src directory in mount output
-	// do we need to free previous value?
-	//	args.argv[0] = strdup( options.srcdir );
-
+	// TODO check config
 
 	ret = fuse_main(args.argc, args.argv, &collect_oper, NULL);
 	fuse_opt_free_args(&args);

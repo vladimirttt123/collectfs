@@ -44,6 +44,7 @@ Than it is line of file name and one or more lines with full paths to parts of t
 ### Limitations
 * No unicode support
 * No subfolders support
+* No config reread (after config change need unmount and mount)
 * Full path to files should be used
 ### Example 
 Following config defines 2 files each splitted in 2 folders
