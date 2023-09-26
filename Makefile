@@ -1,5 +1,5 @@
 COMPILER = gcc
-CFLAGS = -O2
+CFLAGS = -g
 
 HEADERS = Makefile config.h
 FILESYSTEM_FILES = collectfs.c config.c

@@ -70,18 +70,18 @@ static int get_fs_info( char *buf, size_t size, off_t offset ){
 	return size;
 }
 
-static int64_t get_file_size( int base_line ){
+static int64_t get_file_size( int base_line, int force ){
 
 	if( base_line < 0 || base_line >= config.lines_count || config.lines[base_line][0] == '/' ) 
 		return -1; // incorrect base line
 	
-	if( file_sizes[base_line] < 0 ) {
+	if( force != 0 || file_sizes[base_line] < 0 ) {
 		// reinit
 		struct stat path_stat;
 		int64_t size = 0;
 		for( int i = base_line+1; i < config.lines_count && config.lines[i][0] == '/'; i++ ){
 			
-			if( file_sizes[i] < 0 ) {
+			if( force != 0 || file_sizes[i] < 0 ) {
 				if( stat( config.lines[i], &path_stat ) != 0 ){
 					printf( "Error: cannot stat %s", config.lines[i] );
 					return file_sizes[i] = -2;
@@ -135,7 +135,7 @@ static int collect_getattr(const char *path, struct stat *stbuf,
 			if( line < 0 || config.lines[line][0] == '/' )
 				return -ENOENT;
 
-			stbuf->st_size = get_file_size( line );
+			stbuf->st_size = get_file_size( line, 0 );
 		}
 
 		if( stbuf->st_size < 0 ) return -EIO;
@@ -180,7 +180,7 @@ static int collect_open( const char *path, struct fuse_file_info *fi )
 	if( path[1] == '/' || line < 0 )
 		return -ENOENT;
 
-	if( get_file_size(line) < 0 ) return -EIO;
+	if( get_file_size( line, 0 ) < 0 ) return -EIO;
 
 	return 0;
 }
@@ -199,9 +199,12 @@ static int collect_read(const char *path, char *buf, size_t size, off_t offset,
 	int base_line = find_line( &config, path+1 );
 	if( base_line < 0 || path[1] == '/' ) return -ENOENT;
 
-	off_t fsize = get_file_size( base_line );
+	off_t fsize = get_file_size( base_line, 0 );
 	if( fsize < 0 ) return -EIO; // file has problems
-	if( offset >= fsize ) return 0; // read after end of file
+	if( offset >= fsize ){ // try to read after end of file
+		fsize = get_file_size( base_line, 1 ); // force reread size... may be underlying files changed
+		if( offset >= fsize ) return EOF; // read after end of file - what to return?
+	} 
 
 	off_t cur_offset = 0;
 	size_t bytes_read = 0;
@@ -209,8 +212,8 @@ static int collect_read(const char *path, char *buf, size_t size, off_t offset,
 	for( int line = base_line + 1; line < config.lines_count && config.lines[line][0] == '/'; line++ ){
 
 		if( offset > cur_offset ){
-			if( fsize <= offset - cur_offset ){
-				cur_offset += fsize;
+			if( file_sizes[line] <= offset - cur_offset ){
+				cur_offset += file_sizes[line];
 				continue;
 			}
 		}

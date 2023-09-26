@@ -41,7 +41,12 @@ mount /mnt/collectfs.mountpoint
 Empty lines and lines started from # are skipped.
 Than it is line of file name and one or more lines with full paths to parts of the file.
 
-For example following config defines 2 files each splitted in 2 folders
+### Limitations
+* No unicode support
+* No subfolders support
+* Full path to files should be used
+### Example 
+Following config defines 2 files each splitted in 2 folders
 ```
 file1.txt
 /mnt/disk1/file.txt.part1
