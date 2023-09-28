@@ -61,3 +61,5 @@ while (( START_FROM < FILE_SIZE )); do
 	START_FROM=$(( START_FROM + PART_SIZE ))
 	FOLDER_NO=$(( FOLDER_NO + 1 ))
 done
+
+echo ""
