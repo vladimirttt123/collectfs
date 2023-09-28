@@ -17,8 +17,12 @@ install: collectfs
 	/bin/chmod 0755 /usr/bin/collectfs
 	ln -s ../bin/collectfs /usr/sbin/mount.collectfs
 
+	cp ./collectfs.splitter /usr/bin/collectfs.splitter
+	/bin/chown root:root /usr/bin/collectfs.splitter
+	/bin/chmod 0755 /usr/bin/collectfs.splitter
+
 uninstall:
-	rm /usr/sbin/mount.collectfs /usr/bin/collectfs
+	rm /usr/sbin/mount.collectfs /usr/bin/collectfs /usr/bin/collectfs.splitter
 
 clean:
 	rm -f collectfs

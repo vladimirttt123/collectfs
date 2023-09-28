@@ -65,6 +65,16 @@ After mounting with such config file list of mount point should show 2 files wit
 # Warning! Supposed no referenced files changing during mount!
 First create files than add it to config, than you can mount.
 
+## Help utility
+In order to help with splitting files simple script provided.
+This script recieves as first parameter file that should be splitted and following parameters are folders where to split in.
+It fills first folder free space with first part of the file than second folder with skipping first part and so on.
+Output of this utility can be added to config files as is.
+```
+collectfs.splitter bigfile folder1 folder2 fodler3 >> collectfs.config
+```
+Remember to unmount and mount after changing config file.
+
 ## Troubleshooting
 In order to help understand the problems with config file there is ".fsinfo" file.
 It presents invisibly or can be added to config and will be present visibly.

@@ -1,0 +1,63 @@
+#!/bin/bash
+
+FOLDERS_COUNT=$#
+FOLDERS_COUNT=$(( FOLDERS_COUNT - 1 ))
+
+if(( FOLDERS_COUNT < 2 )); then
+	echo "Please provide folders to split into"
+	echo ""
+	echo "This utility splits files to folders providing as output config file for collectfs. Usage:"
+	echo "   collectfs.splitter source_file destination_folder1 destination_folder2 ... >> collectfs.config"
+	echo ""
+	echo "Remember: after config change you need unmount and mount collect fs"
+	exit
+fi
+
+FILE_NAME=`basename "$1"`
+FILE_SIZE=$(stat -c%s "$1")
+
+START_FROM=0
+PART_NO=1
+BLOCK_SIZE=65536
+
+PARAMS=( "$@" )
+FOLDER_NO=1
+
+echo $FILE_NAME 
+
+while (( START_FROM < FILE_SIZE )); do
+	if (( PART_NO > FOLDERS_COUNT )); then
+		echo "# ERROR: not enough space in provided folders"
+		exit
+	fi
+
+	DST_FILE=`realpath ${PARAMS[$FOLDER_NO]}`/$FILE_NAME.part$PART_NO
+
+	SKIP_BLOCKS=$(( START_FROM / BLOCK_SIZE ))
+	while (( SKIP_BLOCKS * BLOCK_SIZE != START_FROM )); do
+		BLOCK_SIZE=$(( BLOCK_SIZE / 2 ))
+		SKIP_BLOCKS=$(( START_FROM / BLOCK_SIZE ))
+	done
+
+	# echo "# part " $PART_NO " skip " $SKIP_BLOCKS " block sise " $BLOCK_SIZE
+	dd bs=$BLOCK_SIZE status=progress skip=$SKIP_BLOCKS "if=$1" "of=$DST_FILE"
+
+	if [ -f "$DST_FILE" ]; then
+		PART_SIZE=$(stat -c%s "$DST_FILE")
+	else
+		PART_SIZE=0
+	fi
+
+	if (( PART_SIZE > 0 )); then
+		echo $DST_FILE
+		PART_NO=$(( PART_NO + 1 ))
+	else 
+	  # This folder is full and we are not going to use this file
+		if [ -f "$DST_FILE" ]; then
+			rm "$DST_FILE"
+		fi
+	fi
+
+	START_FROM=$(( START_FROM + PART_SIZE ))
+	FOLDER_NO=$(( FOLDER_NO + 1 ))
+done
