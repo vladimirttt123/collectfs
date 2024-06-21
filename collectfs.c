@@ -30,6 +30,8 @@ static struct options {
 				int show_help;
 } options;
 
+
+
 #define OPTION(t, p)                           \
 		{ t, offsetof(struct options, p), 1 }
 static const struct fuse_opt option_spec[] = {
@@ -41,6 +43,7 @@ static const struct fuse_opt option_spec[] = {
 
 static config_struct config;
 static int64_t *file_sizes;
+static time_t *file_access_times;
 
 static int get_fs_info_size(){
 	int info_size = 1 + config.lines_count*2 + (strlen(collectfs_ver) + 2) + (strlen( options.config ) + 1);
@@ -112,8 +115,12 @@ static void *collect_init(struct fuse_conn_info *conn,
 
 		// init files sizes 
 		file_sizes = (int64_t*)malloc( sizeof(int64_t)*config.lines_count );
-		for( int i = 0; i < config.lines_count; i++ )
+		file_access_times = (time_t*)malloc( sizeof(time_t)*config.lines_count );
+
+		for( int i = 0; i < config.lines_count; i++ ){
 			file_sizes[i] = -1; // not inited or has a problem
+			file_access_times[i] = time(NULL);
+		}
 
 		return NULL;
 }
@@ -136,6 +143,7 @@ static int collect_getattr(const char *path, struct stat *stbuf,
 				return -ENOENT;
 
 			stbuf->st_size = get_file_size( line, 0 );
+			stbuf->st_atime = stbuf->st_mtime = file_access_times[line];
 		}
 
 		if( stbuf->st_size < 0 ) return -EIO;
@@ -182,6 +190,8 @@ static int collect_open( const char *path, struct fuse_file_info *fi )
 
 	if( get_file_size( line, 0 ) < 0 ) return -EIO;
 
+	file_access_times[line] = time( NULL );
+
 	return 0;
 }
 
@@ -198,6 +208,8 @@ static int collect_read(const char *path, char *buf, size_t size, off_t offset,
 
 	int base_line = find_line( &config, path+1 );
 	if( base_line < 0 || path[1] == '/' ) return -ENOENT;
+
+	file_access_times[base_line] = time(NULL);
 
 	off_t fsize = get_file_size( base_line, 0 );
 	if( fsize < 0 ) return -EIO; // file has problems
