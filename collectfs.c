@@ -14,7 +14,7 @@
 
 #include "config.h"
 
-const char * collectfs_ver = "0.0.1";
+const char * collectfs_ver = "0.0.2";
 const char * fs_info_name = ".fsinfo";
 
 /*
@@ -132,8 +132,12 @@ static int collect_getattr(const char *path, struct stat *stbuf,
 
 	memset( stbuf, 0, sizeof(struct stat) );
 	if (strcmp(path, "/") == 0 || strcmp(path, ".") == 0 || strcmp(path,"..") == 0 ) {
-	 				stbuf->st_mode = S_IFDIR | 0555;
-	 				stbuf->st_nlink = 2;
+		stbuf->st_mode = S_IFDIR | 0555;
+		stbuf->st_nlink = 2;
+		// set last access time by last accessed file.
+		for( int i = 0; i < config.lines_count; i++ )
+			if( stbuf->st_atime < file_access_times[i] )
+				stbuf->st_atime = stbuf->st_mtime = file_access_times[i];
 	} else {
 		if( strcmp( path + 1, fs_info_name ) == 0 ){
 			stbuf->st_size = get_fs_info_size();
@@ -276,7 +280,8 @@ static const struct fuse_operations collect_oper = {
 static void show_help(const char *progname)
 {
 	printf( "collectfs ver %s\n", collectfs_ver );
-	printf( "usage: %s [options] <configfile> <mountpoint>\n\n", progname );
+	printf( "usage: %s [options] <config_file> <mount_point>\n", progname );
+	printf( "problems checking: cat <mount_point>/.fsinfo\n\n" );
 	printf( "File-system specific options:\n"
 				  "\n");
 }
@@ -364,6 +369,7 @@ int main(int argc, char *argv[])
 	ret = fuse_main(args.argc, args.argv, &collect_oper, NULL);
 	fuse_opt_free_args(&args);
 	free(file_sizes); // TODO move to destroy
+	free( file_access_times);
 	free_config( &config );
 	
 	return ret;
