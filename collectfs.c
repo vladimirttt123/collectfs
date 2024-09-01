@@ -1,5 +1,8 @@
 #define FUSE_USE_VERSION 31
 
+#define _FILE_OFFSET_BITS 64
+#include <unistd.h>
+
 #include <fuse.h>
 #include <stdio.h>
 #include <string.h>
@@ -89,12 +92,30 @@ static int64_t get_file_size( int base_line, int force ){
 					printf( "Error: cannot stat %s", config.lines[i] );
 					return file_sizes[i] = -2;
 				}
-				if( !S_ISREG( path_stat.st_mode ) ){
-					printf( "%s is not a regular file", config.lines[i] );
+				if( S_ISREG( path_stat.st_mode ) ) 
+					file_sizes[i] = path_stat.st_size;
+				else if( S_ISBLK( path_stat.st_mode ) ){
+					int fd = open( config.lines[i], O_RDONLY);
+					if( fd <= 0 ){
+						printf( "Error: cannot open block device for read %s", config.lines[i] );
+						return file_sizes[i] = -4;
+					}
+
+					off_t fsize = lseek( fd, 0, SEEK_END );
+					if( fsize < 0 ){
+						printf( "Error: cannot seek block device for read %s", config.lines[i] );
+						close( fd );
+						return file_sizes[i] = -5;
+					}
+					close(fd);
+					file_sizes[i] = fsize;
+				}
+				else
+				{
+					printf( "%s is not a regular file or block device %i\n", config.lines[i], path_stat.st_mode );
 					return file_sizes[i] = -3;
 				}
 
-				file_sizes[i] = path_stat.st_size;
 			} 
 			size += file_sizes[i];
 		}
@@ -281,7 +302,7 @@ static void show_help(const char *progname)
 {
 	printf( "collectfs ver %s\n", collectfs_ver );
 	printf( "usage: %s [options] <config_file> <mount_point>\n", progname );
-	printf( "problems checking: cat <mount_point>/.fsinfo\n\n" );
+	printf( "problems checking: cat <mount_point>/%s\n\n", fs_info_name );
 	printf( "File-system specific options:\n"
 				  "\n");
 }
