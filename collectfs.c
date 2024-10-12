@@ -17,7 +17,7 @@
 
 #include "config.h"
 
-const char * collectfs_ver = "0.0.2";
+const char * collectfs_ver = "0.0.3";
 const char * fs_info_name = ".fsinfo";
 
 /*
@@ -48,30 +48,31 @@ static config_struct config;
 static int64_t *file_sizes;
 static time_t *file_access_times;
 
-static int get_fs_info_size(){
-	int info_size = 1 + config.lines_count*2 + (strlen(collectfs_ver) + 2) + (strlen( options.config ) + 1);
-	for( int i = 0; i < config.lines_count; i++ )
-		info_size += strlen( config.lines[i] ) + snprintf( NULL, 0, "%ld", file_sizes[i] );
 
-	return info_size;
+static int fs_info_print( char* info, int info_size ){
+	int len = snprintf( info, info_size, "v%s\t%s\n", collectfs_ver, options.config ); // version and path to config file
+	// loop by each config line
+	for( int i = 0; i < config.lines_count; i++ )
+		len += snprintf( info == NULL ? NULL : (info + len), (info == NULL || info_size < len) ? 0 : (info_size - len ), 
+												"%ld\t%s\n", file_sizes[i], config.lines[i] );
+
+	return len;
 }
+static int get_fs_info_size(){ return fs_info_print( NULL, 0 ); }
 
 static int get_fs_info( char *buf, size_t size, off_t offset ){
 	int info_size = get_fs_info_size();
-	
-	char * res = (char*)malloc( info_size + 1 );
-	memset( res, 0, info_size );
-	
-	for( int i = 0, len = snprintf( res, info_size, "v%s\t%s\n", collectfs_ver, options.config ); 
-					i < config.lines_count; i++ )
-		len += snprintf( res + len, info_size-len, "%ld\t%s\n", file_sizes[i], config.lines[i] );
 
-	if( offset > info_size ) return 0;
+	if( offset > info_size ) return 0; // reading after end of file
+	
+	char * info = (char*)malloc( info_size + 1 );
+	fs_info_print( info, info_size + 1 ); // create fs info content
+
 	if( (offset+size) > info_size ) 
 		size = info_size - offset;
-	memcpy( buf, res + offset, size );
+	memcpy( buf, info + offset, size ); // copy content t odesitination buffer
 
-	free( res );
+	free( info );
 
 	return size;
 }
