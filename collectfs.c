@@ -53,8 +53,8 @@ static int fs_info_print( char* info, int info_size ){
 	int len = snprintf( info, info_size, "v%s\t%s\n", collectfs_ver, options.config ); // version and path to config file
 	// loop by each config line
 	for( int i = 0; i < config.lines_count; i++ )
-		len += snprintf( info == NULL ? NULL : (info + len), (info == NULL || info_size < len) ? 0 : (info_size - len ), 
-												"%ld\t%s\n", file_sizes[i], config.lines[i] );
+		len += snprintf( info == NULL ? NULL : (info + len), (info == NULL || info_size <= len) ? 0 : (info_size - len ), 
+												"%ld\t%s%s\n", file_sizes[i], config.lines[i][0] == '/' ? "\t" : "", config.lines[i] );
 
 	return len;
 }
